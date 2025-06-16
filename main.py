@@ -1,7 +1,7 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import tempfile
 import os
 import json
@@ -10,17 +10,44 @@ from datetime import datetime
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import uuid
+import time
 
 # Import your existing TIUResumeProcessor class
 from tiu_resume_processor_normal import TIUResumeProcessor
 
-# Initialize FastAPI app
+# Create temp directory for storing generated files
+TEMP_DIR = "temp_files"
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print("Starting up...")
+    current_time = time.time()
+    if os.path.exists(TEMP_DIR):
+        for filename in os.listdir(TEMP_DIR):
+            file_path = os.path.join(TEMP_DIR, filename)
+            if os.path.isfile(file_path):
+                file_age = current_time - os.path.getctime(file_path)
+                # Remove files older than 1 hour
+                if file_age > 3600:
+                    try:
+                        os.remove(file_path)
+                        print(f"Removed old file: {filename}")
+                    except OSError:
+                        pass
+    yield  # App runs here
+    # Shutdown
+    print("Shutting down...")
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="TIU Resume Processor API",
     description="Convert JSON resume data to TIU Consulting format PDF",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # Add CORS middleware
@@ -56,10 +83,6 @@ class ProcessResponse(BaseModel):
     message: str
     filename: str
     timestamp: str
-
-# Create temp directory for storing generated files
-TEMP_DIR = "temp_files"
-os.makedirs(TEMP_DIR, exist_ok=True)
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -366,7 +389,7 @@ async def home():
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """Upload a JSON file and get PDF resume automatically"""
+    """Upload a JSON file and get a PDF resume automatically"""
     if not file.filename.endswith('.json'):
         raise HTTPException(status_code=400, detail="File must be a JSON file")
     
@@ -404,7 +427,7 @@ async def process_json(resume_data: ResumeData):
     """Process JSON resume data directly and return PDF"""
     try:
         # Convert Pydantic model to dict
-        json_data = resume_data.model_dump()
+        json_data = resume_data.dict()
         
         # Process the resume
         pdf_path = await process_resume_data(json_data)
@@ -428,7 +451,7 @@ async def process_json(resume_data: ResumeData):
 async def api_process_json(resume_data: ResumeData):
     """Alternative endpoint that returns JSON response instead of file"""
     try:
-        json_data = resume_data.model_dump()
+        json_data = resume_data.dict()
         pdf_path = await process_resume_data(json_data)
         
         # Move to permanent location with unique name
@@ -475,20 +498,16 @@ async def health_check():
 async def get_stats():
     """Get API usage statistics"""
     temp_files = len([f for f in os.listdir(TEMP_DIR) if f.endswith('.pdf')])
-    
+    total_size = sum(os.path.getsize(os.path.join(TEMP_DIR, f)) for f in os.listdir(TEMP_DIR))
     return {
         "generated_resumes": temp_files,
-        "temp_directory_size": sum(
-            os.path.getsize(os.path.join(TEMP_DIR, f)) 
-            for f in os.listdir(TEMP_DIR)
-        ),
+        "temp_directory_size": total_size,
         "uptime": "Running",
         "timestamp": datetime.now().isoformat()
     }
 
 async def process_resume_data(json_data: Dict[str, Any]) -> str:
     """Helper function to process resume data and return PDF path"""
-    # Create temporary files
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_input:
         json.dump(json_data, temp_input, indent=2)
         temp_input_path = temp_input.name
@@ -498,25 +517,19 @@ async def process_resume_data(json_data: Dict[str, Any]) -> str:
     temp_output.close()
     
     try:
-        # Process the resume using your existing class
         processor = TIUResumeProcessor()
         success = processor.process_resume(temp_input_path, temp_output_path)
-        
         if not success:
             raise Exception("Failed to generate PDF resume")
-        
         return temp_output_path
-    
     finally:
-        # Clean up input file
         if os.path.exists(temp_input_path):
             os.unlink(temp_input_path)
 
-# Cleanup function to remove old temporary files
+# Cleanup function to remove old temporary files on startup
 @app.on_event("startup")
 async def startup_event():
     """Clean up old temporary files on startup"""
-    import time
     current_time = time.time()
     for filename in os.listdir(TEMP_DIR):
         file_path = os.path.join(TEMP_DIR, filename)
@@ -528,4 +541,4 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=9000)
