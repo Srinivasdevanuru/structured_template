@@ -38,11 +38,31 @@ st.markdown("""
         border-radius: 5px;
         border-left: 4px solid #28a745;
     }
+    .download-section {
+        background: #e8f5e8;
+        padding: 2rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        border: 2px solid #28a745;
+    }
+    .stDownloadButton > button {
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 1rem 2rem;
+        font-size: 18px;
+        border-radius: 8px;
+        width: 100%;
+        margin: 10px 0;
+    }
+    .stDownloadButton > button:hover {
+        background: #218838;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-def process_resume_data(json_data: Dict[str, Any]) -> str:
-    """Helper function to process resume data and return PDF path"""
+def process_resume_data(json_data: Dict[str, Any]) -> tuple[bytes, str]:
+    """Helper function to process resume data and return PDF bytes and filename"""
     # Create temporary files
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_input:
         json.dump(json_data, temp_input, indent=2)
@@ -60,12 +80,23 @@ def process_resume_data(json_data: Dict[str, Any]) -> str:
         if not success:
             raise Exception("Failed to generate PDF resume")
         
-        return temp_output_path
+        # Read PDF file
+        with open(temp_output_path, 'rb') as pdf_file:
+            pdf_bytes = pdf_file.read()
+        
+        # Generate filename
+        candidate_name = json_data.get('candidateName', 'resume')
+        safe_name = "".join(c for c in candidate_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        filename = f"{safe_name}_TIU_Resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        return pdf_bytes, filename
     
     finally:
-        # Clean up input file
+        # Clean up temporary files
         if os.path.exists(temp_input_path):
             os.unlink(temp_input_path)
+        if os.path.exists(temp_output_path):
+            os.unlink(temp_output_path)
 
 def main():
     # Header
@@ -82,11 +113,12 @@ def main():
     with tab1:
         st.markdown('<div class="upload-section">', unsafe_allow_html=True)
         st.subheader("Upload JSON Resume File")
+        st.write("📤 **Upload your JSON file and the PDF will be automatically generated for download!**")
         
         uploaded_file = st.file_uploader(
             "Choose a JSON file",
             type=['json'],
-            help="Upload a JSON file containing resume data"
+            help="Upload a JSON file containing resume data - PDF will be generated automatically!"
         )
         
         if uploaded_file is not None:
@@ -97,6 +129,7 @@ def main():
                 # Validate required fields
                 if not json_data.get('candidateName'):
                     st.error("❌ candidateName is required in JSON")
+                    st.markdown('</div>', unsafe_allow_html=True)
                     return
                 
                 st.success(f"✅ JSON file loaded successfully!")
@@ -106,34 +139,30 @@ def main():
                 with st.expander("📋 Preview JSON Data"):
                     st.json(json_data)
                 
-                # Process button
-                if st.button("🔄 Generate PDF Resume", type="primary"):
-                    with st.spinner("Processing resume..."):
-                        try:
-                            pdf_path = process_resume_data(json_data)
-                            
-                            # Read PDF file for download
-                            with open(pdf_path, 'rb') as pdf_file:
-                                pdf_bytes = pdf_file.read()
-                            
-                            # Generate filename
-                            candidate_name = json_data.get('candidateName', 'resume')
-                            safe_name = "".join(c for c in candidate_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-                            filename = f"{safe_name}_TIU_Resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                            
-                            st.success("🎉 PDF generated successfully!")
-                            st.download_button(
-                                label="📥 Download PDF Resume",
-                                data=pdf_bytes,
-                                file_name=filename,
-                                mime="application/pdf"
-                            )
-                            
-                            # Cleanup
-                            os.unlink(pdf_path)
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error processing resume: {str(e)}")
+                # Auto-process the resume
+                with st.spinner("🔄 Automatically generating PDF resume..."):
+                    try:
+                        pdf_bytes, filename = process_resume_data(json_data)
+                        
+                        # Success message and download section
+                        st.markdown('<div class="download-section">', unsafe_allow_html=True)
+                        st.success("🎉 PDF generated successfully!")
+                        st.write("📥 **Your resume is ready for download:**")
+                        
+                        # Auto-download button (prominent)
+                        st.download_button(
+                            label="📥 Download PDF Resume",
+                            data=pdf_bytes,
+                            file_name=filename,
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        
+                        st.info(f"📄 **File:** {filename}")
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error processing resume: {str(e)}")
             
             except json.JSONDecodeError:
                 st.error("❌ Invalid JSON file format")
@@ -144,6 +173,7 @@ def main():
     
     with tab2:
         st.subheader("Manual Resume Input")
+        st.write("📝 **Fill out the form and your PDF will be automatically generated!**")
         
         with st.form("resume_form"):
             col1, col2 = st.columns(2)
@@ -184,7 +214,8 @@ def main():
             
             additional_info = st.text_area("Additional Information", placeholder="Patents and publications...")
             
-            submitted = st.form_submit_button("🔄 Generate PDF Resume", type="primary")
+            # Auto-generate on submit
+            submitted = st.form_submit_button("🚀 Generate & Download PDF Resume", type="primary", use_container_width=True)
             
             if submitted:
                 if not candidate_name:
@@ -209,28 +240,26 @@ def main():
                         "additionalInformation": additional_info
                     }
                     
-                    with st.spinner("Processing resume..."):
+                    with st.spinner("🔄 Generating PDF resume..."):
                         try:
-                            pdf_path = process_resume_data(json_data)
+                            pdf_bytes, filename = process_resume_data(json_data)
                             
-                            # Read PDF file for download
-                            with open(pdf_path, 'rb') as pdf_file:
-                                pdf_bytes = pdf_file.read()
-                            
-                            # Generate filename
-                            safe_name = "".join(c for c in candidate_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-                            filename = f"{safe_name}_TIU_Resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                            
+                            # Success message and download section
+                            st.markdown('<div class="download-section">', unsafe_allow_html=True)
                             st.success("🎉 PDF generated successfully!")
+                            st.write("📥 **Your resume is ready for download:**")
+                            
+                            # Auto-download button (prominent)
                             st.download_button(
                                 label="📥 Download PDF Resume",
                                 data=pdf_bytes,
                                 file_name=filename,
-                                mime="application/pdf"
+                                mime="application/pdf",
+                                use_container_width=True
                             )
                             
-                            # Cleanup
-                            os.unlink(pdf_path)
+                            st.info(f"📄 **File:** {filename}")
+                            st.markdown('</div>', unsafe_allow_html=True)
                             
                         except Exception as e:
                             st.error(f"❌ Error processing resume: {str(e)}")
@@ -240,11 +269,20 @@ def main():
         
         st.markdown("""
         ### Features
-        - ✅ Instant PDF generation
+        - ✅ **Automatic PDF generation** - No manual buttons to click!
+        - ✅ **Instant processing** - Upload JSON and get PDF immediately
         - ✅ Professional TIU Consulting branded PDF output
         - ✅ Automatic JSON validation and error handling
         - ✅ Support for complete resume data including experience, education, skills
         - ✅ Manual input form for easy data entry
+        - ✅ Secure HTTPS download
+        """)
+        
+        st.markdown("""
+        ### How It Works
+        1. **Upload Method**: Upload a JSON file → PDF automatically generates → Download immediately
+        2. **Manual Method**: Fill the form → Submit → PDF automatically generates → Download immediately
+        3. **Secure**: All processing happens on secure HTTPS server
         """)
         
         st.subheader("JSON Format Example")
