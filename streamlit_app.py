@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 import uuid
 from typing import Dict, Any
+import base64
 
 # Import your existing TIUResumeProcessor class
 from tiu_resume_processor_normal import TIUResumeProcessor
@@ -15,7 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS for better styling
+# Custom CSS for better styling and auto-download functionality
 st.markdown("""
 <style>
     .main-header {
@@ -32,34 +33,46 @@ st.markdown("""
         border-radius: 10px;
         margin: 1rem 0;
     }
-    .stSuccess {
-        background-color: #d4edda;
-        padding: 1rem;
-        border-radius: 5px;
-        border-left: 4px solid #28a745;
-    }
-    .download-section {
+    .auto-download-section {
         background: #e8f5e8;
         padding: 2rem;
         border-radius: 10px;
         margin: 1rem 0;
         border: 2px solid #28a745;
+        text-align: center;
     }
-    .stDownloadButton > button {
-        background: #28a745;
-        color: white;
-        border: none;
-        padding: 1rem 2rem;
-        font-size: 18px;
-        border-radius: 8px;
-        width: 100%;
-        margin: 10px 0;
-    }
-    .stDownloadButton > button:hover {
-        background: #218838;
+    .processing {
+        background: #fff3cd;
+        padding: 2rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        border: 2px solid #ffc107;
+        text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
+
+def auto_download_pdf(pdf_bytes: bytes, filename: str):
+    """Create auto-download functionality using JavaScript"""
+    b64_pdf = base64.b64encode(pdf_bytes).decode()
+    
+    download_script = f"""
+    <script>
+        function downloadPDF() {{
+            const link = document.createElement('a');
+            link.href = 'data:application/pdf;base64,{b64_pdf}';
+            link.download = '{filename}';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }}
+        
+        // Auto-download after a short delay
+        setTimeout(downloadPDF, 1000);
+    </script>
+    """
+    
+    st.markdown(download_script, unsafe_allow_html=True)
 
 def process_resume_data(json_data: Dict[str, Any]) -> tuple[bytes, str]:
     """Helper function to process resume data and return PDF bytes and filename"""
@@ -103,7 +116,7 @@ def main():
     st.markdown("""
     <div class="main-header">
         <h1>🚀 TIU Resume Processor</h1>
-        <p>Upload JSON resume → Get PDF instantly</p>
+        <p>Upload JSON → PDF downloads automatically!</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -113,12 +126,13 @@ def main():
     with tab1:
         st.markdown('<div class="upload-section">', unsafe_allow_html=True)
         st.subheader("Upload JSON Resume File")
-        st.write("📤 **Upload your JSON file and the PDF will be automatically generated for download!**")
+        st.write("📤 **Upload your JSON file and the PDF will automatically download to your device!**")
         
         uploaded_file = st.file_uploader(
             "Choose a JSON file",
             type=['json'],
-            help="Upload a JSON file containing resume data - PDF will be generated automatically!"
+            help="Upload a JSON file - PDF will auto-download!",
+            key="json_uploader"
         )
         
         if uploaded_file is not None:
@@ -132,37 +146,38 @@ def main():
                     st.markdown('</div>', unsafe_allow_html=True)
                     return
                 
-                st.success(f"✅ JSON file loaded successfully!")
+                # Show processing message
+                st.markdown('<div class="processing">', unsafe_allow_html=True)
+                st.write("🔄 **Processing and generating PDF...**")
                 st.write(f"**Candidate:** {json_data.get('candidateName', 'N/A')}")
-                
-                # Show JSON preview
-                with st.expander("📋 Preview JSON Data"):
-                    st.json(json_data)
+                st.markdown('</div>', unsafe_allow_html=True)
                 
                 # Auto-process the resume
-                with st.spinner("🔄 Automatically generating PDF resume..."):
-                    try:
-                        pdf_bytes, filename = process_resume_data(json_data)
-                        
-                        # Success message and download section
-                        st.markdown('<div class="download-section">', unsafe_allow_html=True)
-                        st.success("🎉 PDF generated successfully!")
-                        st.write("📥 **Your resume is ready for download:**")
-                        
-                        # Auto-download button (prominent)
+                try:
+                    pdf_bytes, filename = process_resume_data(json_data)
+                    
+                    # Success message
+                    st.markdown('<div class="auto-download-section">', unsafe_allow_html=True)
+                    st.success("✅ PDF Generated Successfully!")
+                    st.write("📥 **Download starting automatically...**")
+                    st.write(f"📄 **File:** {filename}")
+                    st.write("💡 *If download doesn't start, check your browser's download folder*")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    
+                    # Auto-download the PDF
+                    auto_download_pdf(pdf_bytes, filename)
+                    
+                    # Fallback download button (hidden by default, shows if auto-download fails)
+                    with st.expander("Manual Download (if auto-download failed)"):
                         st.download_button(
-                            label="📥 Download PDF Resume",
+                            label="📥 Download PDF Manually",
                             data=pdf_bytes,
                             file_name=filename,
-                            mime="application/pdf",
-                            use_container_width=True
+                            mime="application/pdf"
                         )
                         
-                        st.info(f"📄 **File:** {filename}")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        
-                    except Exception as e:
-                        st.error(f"❌ Error processing resume: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Error processing resume: {str(e)}")
             
             except json.JSONDecodeError:
                 st.error("❌ Invalid JSON file format")
@@ -173,7 +188,7 @@ def main():
     
     with tab2:
         st.subheader("Manual Resume Input")
-        st.write("📝 **Fill out the form and your PDF will be automatically generated!**")
+        st.write("📝 **Fill out the form and PDF will automatically download!**")
         
         with st.form("resume_form"):
             col1, col2 = st.columns(2)
@@ -214,8 +229,8 @@ def main():
             
             additional_info = st.text_area("Additional Information", placeholder="Patents and publications...")
             
-            # Auto-generate on submit
-            submitted = st.form_submit_button("🚀 Generate & Download PDF Resume", type="primary", use_container_width=True)
+            # Auto-generate and download on submit
+            submitted = st.form_submit_button("🚀 Generate PDF (Auto-Download)", type="primary", use_container_width=True)
             
             if submitted:
                 if not candidate_name:
@@ -240,49 +255,58 @@ def main():
                         "additionalInformation": additional_info
                     }
                     
-                    with st.spinner("🔄 Generating PDF resume..."):
-                        try:
-                            pdf_bytes, filename = process_resume_data(json_data)
-                            
-                            # Success message and download section
-                            st.markdown('<div class="download-section">', unsafe_allow_html=True)
-                            st.success("🎉 PDF generated successfully!")
-                            st.write("📥 **Your resume is ready for download:**")
-                            
-                            # Auto-download button (prominent)
+                    # Show processing message
+                    st.markdown('<div class="processing">', unsafe_allow_html=True)
+                    st.write("🔄 **Generating PDF...**")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    
+                    try:
+                        pdf_bytes, filename = process_resume_data(json_data)
+                        
+                        # Success message
+                        st.markdown('<div class="auto-download-section">', unsafe_allow_html=True)
+                        st.success("✅ PDF Generated Successfully!")
+                        st.write("📥 **Download starting automatically...**")
+                        st.write(f"📄 **File:** {filename}")
+                        st.write("💡 *If download doesn't start, check your browser's download folder*")
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        # Auto-download the PDF
+                        auto_download_pdf(pdf_bytes, filename)
+                        
+                        # Fallback download button
+                        with st.expander("Manual Download (if auto-download failed)"):
                             st.download_button(
-                                label="📥 Download PDF Resume",
+                                label="📥 Download PDF Manually",
                                 data=pdf_bytes,
                                 file_name=filename,
-                                mime="application/pdf",
-                                use_container_width=True
+                                mime="application/pdf"
                             )
                             
-                            st.info(f"📄 **File:** {filename}")
-                            st.markdown('</div>', unsafe_allow_html=True)
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error processing resume: {str(e)}")
+                    except Exception as e:
+                        st.error(f"❌ Error processing resume: {str(e)}")
     
     with tab3:
         st.subheader("📖 Documentation")
         
         st.markdown("""
-        ### Features
-        - ✅ **Automatic PDF generation** - No manual buttons to click!
-        - ✅ **Instant processing** - Upload JSON and get PDF immediately
+        ### ⚡ Automatic Download Features
+        - ✅ **Instant Auto-Download** - PDF downloads automatically to your device
+        - ✅ **No Button Clicks** - Just upload JSON or submit form
+        - ✅ **Browser Compatible** - Works in Chrome, Firefox, Safari, Edge
         - ✅ Professional TIU Consulting branded PDF output
         - ✅ Automatic JSON validation and error handling
-        - ✅ Support for complete resume data including experience, education, skills
-        - ✅ Manual input form for easy data entry
-        - ✅ Secure HTTPS download
-        """)
+        - ✅ Secure HTTPS processing
         
-        st.markdown("""
         ### How It Works
-        1. **Upload Method**: Upload a JSON file → PDF automatically generates → Download immediately
-        2. **Manual Method**: Fill the form → Submit → PDF automatically generates → Download immediately
-        3. **Secure**: All processing happens on secure HTTPS server
+        1. **Upload JSON** → PDF auto-generates → **Automatic download to your Downloads folder**
+        2. **Fill Form** → Submit → PDF auto-generates → **Automatic download to your Downloads folder**
+        3. **No manual steps** - everything happens automatically!
+        
+        ### Browser Notes
+        - 📁 PDF files download to your default Downloads folder
+        - 🔒 Some browsers may ask for download permission (first time only)
+        - 💡 If auto-download fails, use the manual download option
         """)
         
         st.subheader("JSON Format Example")
