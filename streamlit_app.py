@@ -53,21 +53,28 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def auto_download_pdf(pdf_bytes: bytes, filename: str):
-    """Create auto-download functionality using JavaScript"""
+    """Improved auto-download with HTTP fallback"""
     b64_pdf = base64.b64encode(pdf_bytes).decode()
     
     download_script = f"""
     <script>
         function downloadPDF() {{
+            const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
             const link = document.createElement('a');
             link.href = 'data:application/pdf;base64,{b64_pdf}';
             link.download = '{filename}';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            
+            if (isSecure) {{
+                // Secure context: try auto-download
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }} else {{
+                // Insecure context: open in new tab
+                window.open(link.href, '_blank');
+            }}
         }}
         
-        // Auto-download after a short delay
         setTimeout(downloadPDF, 1000);
     </script>
     """
